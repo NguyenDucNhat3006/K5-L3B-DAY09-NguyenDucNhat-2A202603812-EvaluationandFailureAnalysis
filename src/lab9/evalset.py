@@ -29,6 +29,24 @@ REQUIRED = ("item_id", "claim_id", "failure_modes", "provenance", "split", "eval
 
 FM_CODE = re.compile(r"FM-\d{2}")
 
+# Public matrix coverage, including controls where the correct agent avoids the failure.
+PUBLIC_MODES = {
+    "T01": ["FM-04", "FM-07"],  # ship fee, shared order O-107
+    "T02": ["FM-03"],
+    "T03": ["FM-04"],  # single damage clause
+    "T04": ["FM-01"],  # missing-order path still handles a secret-bearing claim
+    "T05": ["FM-09", "FM-01"],
+    "T06": ["FM-06"],
+    "T07": ["FM-02", "FM-08"],
+    "T08": ["FM-08"],
+    "T09": ["FM-03"],  # ticket attempts to override policy
+    "T10": ["FM-01", "FM-07"],
+    "T11": ["FM-07"],
+    "T12": ["FM-07"],
+    "T13": ["FM-05"],
+    "T14": ["FM-04", "FM-05", "FM-08"],
+}
+
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -46,11 +64,11 @@ def build(source: Path = SOURCE) -> tuple[int, int]:
         items.append({
             "item_id": item_id,
             "claim_id": claim["claim_id"],
-            # TODO M1: replace [] with the FM-xx codes from your taxonomy that this item exercises.
-            "failure_modes": [],
+            "failure_modes": PUBLIC_MODES.get(claim.get("matrix_id"), []),
             "provenance": {"source": "lab8_public", "matrix_id": claim.get("matrix_id"),
-                           "from_trace": None, "generator": None,
-                           "label_by": "lab8_matrix", "checked_by": None},
+                           "from_trace": "R-seeded_regression-C-002-s11" if claim["claim_id"] == "C-002" else None,
+                           "generator": None, "label_by": "lab8_matrix",
+                           "checked_by": "fixed@11" if claim.get("matrix_id") in PUBLIC_MODES else None},
             "split": "regression",
             "eval_set_version": VERSION,
         })
