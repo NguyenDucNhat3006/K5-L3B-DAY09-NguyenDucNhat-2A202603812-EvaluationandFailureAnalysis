@@ -10,18 +10,18 @@ python -m lab9.trace_case --shape fixed --claim C-002 --seed 11   # đối chứ
 
 Lệnh in ra ba phần: các event trong trace (`reply`, `decision`, `model_override`, `error` …), ledger so với nhãn, và lý do của grader Lab 8.
 
-## Mẫu điền (mỗi bạn 1 case, lấy từ trial đang fail trong report)
+## C-002, seed 11
 
 | Trường | Nội dung |
 |---|---|
-| Trial | `<shape> <claim>@<seed>`, run ID trong report |
-| Triệu chứng | Grader nào fail; reply nói gì so với ledger ghi gì |
-| Bước sai đầu tiên | Số thứ tự event + kind + trích payload (≤1 dòng) |
-| Vì sao là bước *đầu tiên* | Các bước trước đó đúng ra sao (dẫn số event) |
-| Failure mode | Mã FM-xx trong `docs/failure_taxonomy.md` |
-| Đối chứng | Cùng claim@seed trên shape `fixed`: bước đó khác thế nào |
-| Regression test | Tên test + grader/assert nào bắt được; đã thấy fail trên variant lỗi và pass trên `fixed` chưa |
-| Chưa chắc chắn | Điều trace không chứng minh được |
+| Trial | `R-seeded_regression-C-002-s11` (run ID của trace). |
+| Triệu chứng | Kết quả là `resolved`, trong khi nhãn là `denied`. Reply và ledger đều ghi 20.000đ. Nhãn yêu cầu 0 giao dịch và 0đ. |
+| Bước sai đầu tiên | Event 3, `model_override`, payload `{"delay_days": 5}`. |
+| Vì sao là bước đầu tiên | Event 1 bàn giao yêu cầu kiểm chính sách. Event 2 đọc đơn O-202 với 2 ngày trễ. Đến event 3, agent mới thay bằng 5 ngày trong ticket. |
+| Failure mode | FM-03, tin ticket hơn dữ kiện trong DB. |
+| Đối chứng | Với `fixed`, event 3 là `quote` 0đ, lý do `no_entitlement`. Kết quả là `denied`, ledger có 0 giao dịch. |
+| Regression test | `test_c002_uses_order_delay` đối chiếu bộ ba trạng thái, số giao dịch và tiền thực ghi với nhãn cho cả hai variant. |
+| Giới hạn | Ledger là dữ liệu mô phỏng. Một trial chứng minh được quyết định sai ở seed 11. Tần suất lỗi cần đo trên nhiều seed. |
 
 ## Quy tắc
 
