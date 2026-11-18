@@ -96,3 +96,15 @@ Gate đối chiếu khóa (item, seed), số dòng, seed khai báo và nhãn sli
 Baseline v2 so với chính nó trả exit 0. Từ src, chạy `python -m lab9.traps --pr reports/eval_slice_regression.json --baseline reports/baseline_v2.json --spec config/metric_spec_v2.yaml` để sinh bốn trap và lệnh tái hiện từng verdict. [Report đầu vào](../src/reports/eval_slice_regression.json)
 
 **Kiểm chứng local.** 28 test học viên Lab09 đạt, gồm ba regression test bổ sung cho dòng trùng, đổi nhãn slice và lỗi grader dù metric tổng hợp vẫn đạt. Scorecard đạt 3/3, báo nhầm 0. Kết quả này áp dụng cho bộ công khai.
+
+
+## Kiểm chứng CI trên GitHub Actions
+
+Workflow `lab9-eval-gate` chạy thành công trên nhánh `main`, commit
+`cd0df529cc606c41ee7733f65745f7fada1f2617`:
+[Run #44243516125](https://github.com/NguyenDucNhat3006/K5-L3B-DAY09-NguyenDucNhat-2A202603812-EvaluationandFailureAnalysis/actions/runs/44243516125).
+
+- Core: 16 test pass, eval set v1 có 0 lỗi; `fixed` qua gate,
+  `seeded_regression` bị chặn ở `pass_rate`.
+- Advanced/Expert: 12 test pass, eval set v2 có 0 lỗi;
+  mutation score 3/3, false alarms 0.
