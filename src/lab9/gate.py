@@ -11,11 +11,43 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from lab8.console import utf8_stdio
 from lab9 import stats
 from lab9.eval import SPEC, load_spec, per_item
+from lab9.graders import GRADERS
+
+
+def _rules(spec: dict) -> dict:
+    rules = {m["id"]: {**m.get("threshold", {}), "blocking": m.get("blocking", False)}
+             for m in spec.get("metrics", [])}
+    for s in spec.get("slices", []):
+        rules[f"slice:{s['name']}/{s['metric']}"] = s
+    return rules
+
+
+def _relaxed_rules(spec: dict, base_spec: dict) -> list[str]:
+    problems = []
+    current = _rules(spec)
+    for name, old in _rules(base_spec).items():
+        if name not in current:
+            problems.append(f"removed {name}")
+            continue
+        new = current[name]
+        for key in ("blocking", "no_significant_drop"):
+            if old.get(key) and not new.get(key):
+                problems.append(f"{name} disabled {key}")
+        for key in ("min", "max", "max_increase"):
+            if key not in old:
+                continue
+            value = new.get(key)
+            if not isinstance(value, (int, float)) or not math.isfinite(value):
+                problems.append(f"{name} missing or invalid {key}")
+            elif (key == "min" and value < old[key]) or (key != "min" and value > old[key]):
+                problems.append(f"{name} relaxed {key}")
+    return problems
 
 
 def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = None) -> list[str]:
@@ -33,8 +65,36 @@ def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = N
         including dropping no_significant_drop)
       - an item's slice tags in PR rows differ from the baseline's (relabelling an item out of a
         slice hides its regression from the slice gate)"""
-    # TODO M7
-    return []
+    problems = []
+    rows = pr["rows"]
+    manifest = pr["manifest"]
+    seeds = manifest["seeds"]
+    if pr.get("evaluator_failures"):
+        problems.append("evaluator reported failures")
+    metrics = pr.get("metrics", {})
+    for name in set(metrics) | {m["id"] for m in spec["metrics"]}:
+        value = metrics.get(name)
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            problems.append(f"missing or non-finite metric {name}")
+
+    reference = {(r["item_id"], r["seed"]): set(r.get("slices", [])) for r in base["rows"]}
+    actual = {(r["item_id"], r["seed"]) for r in rows}
+    if len(rows) != manifest["items"] * len(seeds) or len(actual) != len(rows):
+        problems.append("incorrect row count or duplicate item/seed")
+    if (actual != reference.keys() or set(seeds) != set(base["manifest"]["seeds"])
+            or len(set(seeds)) != len(seeds) or manifest["items"] != base["manifest"]["items"]):
+        problems.append("item/seed coverage differs from baseline")
+    graded = [m["id"] for m in spec["metrics"] if m["id"] in GRADERS]
+    for row in rows:
+        key = row["item_id"], row["seed"]
+        if key in reference and set(row.get("slices", [])) != reference[key]:
+            problems.append(f"slice tags differ at {key}")
+        for name in graded:
+            if not isinstance(row.get(name), bool):
+                problems.append(f"missing or invalid {name} at {key}")
+    if base_spec is not None and base_spec.get("eval_set_version") == spec.get("eval_set_version"):
+        problems.extend(_relaxed_rules(spec, base_spec))
+    return problems
 
 
 def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]:
@@ -45,7 +105,58 @@ def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]
         lies entirely below 0
     Return (blocked ids like "slice:money_movement/pass_rate", report lines)."""
     # TODO M5
-    return [], []
+    blocked = []
+    lines = []
+    bootstrap = spec.get("bootstrap", {})
+
+    for rule in spec.get("slices", []):
+        name = rule["name"]
+        metric = rule["metric"]
+        label = f"slice:{name}/{metric}"
+
+        current = per_item(pr, metric, slice_name=name)
+        baseline = per_item(base, metric, slice_name=name)
+        reasons = []
+
+        if not current or current.keys() != baseline.keys():
+            reasons.append("missing or mismatched items")
+            detail = f"PR items={len(current)}, baseline items={len(baseline)}"
+        else:
+            item_ids = sorted(current)
+            a = [current[item] for item in item_ids]
+            b = [baseline[item] for item in item_ids]
+            value = sum(a) / len(a)
+            detail = f"mean={value:.3f}, items={len(a)}"
+
+            if "min" in rule and value < rule["min"]:
+                reasons.append(f"below floor {rule['min']:.3f}")
+
+            if rule.get("no_significant_drop"):
+                if len(a) == 1:
+                    # Một item chỉ tạo được một chênh lệch khi lấy mẫu lại.
+                    delta = lo = hi = a[0] - b[0]
+                else:
+                    delta, lo, hi = stats.paired_bootstrap(
+                        a, b,
+                        n_resamples=bootstrap.get("n_resamples", 1000),
+                        rng=bootstrap.get("rng", 2027),
+                        confidence=bootstrap.get("confidence", 0.95),
+                    )
+                detail += f", delta={delta:+.3f}, CI=[{lo:+.3f}, {hi:+.3f}]"
+                if hi < 0:
+                    reasons.append("significant drop")
+
+        verdict = "ok"
+        if reasons:
+            verdict = "warn"
+            if rule.get("blocking"):
+                blocked.append(label)
+                verdict = "BLOCK"
+            detail += ", " + ", ".join(reasons)
+
+        lines.append(f"  {label} {detail} {verdict}")
+
+    return blocked, lines
 
 
 def check(pr: dict, base: dict, spec: dict, base_spec: dict | None = None) -> tuple[list[str], list[str]]:
